@@ -21,7 +21,7 @@
 	<parent>
 		<groupId>org.sonatype.plugins</groupId>
 		<artifactId>plugins-parent</artifactId>
-		<version>1-SNAPSHOT</version>
+		<version>1</version>
 	</parent>
   <groupId>org.sonatype.plugins</groupId>
   <artifactId>plx-maven-plugin</artifactId>
@@ -29,6 +29,11 @@
   <version>1.0-SNAPSHOT</version>
   <name>Sonatype Plexus Plugin</name>
   <description>Boot up a Plexus container for any component for quick development. Very similar in nature to the jetty:run incarnation.</description>
+  
+  <properties>
+    <maven.version>2.1-SONATYPE-653485</maven.version>
+    <maven.artifact.version>3.0-SONATYPE-653272</maven.artifact.version>
+  </properties>
   
   <dependencies>
     <dependency>
@@ -39,22 +44,22 @@
     <dependency>
       <groupId>org.apache.maven</groupId>
       <artifactId>maven-plugin-api</artifactId>
-      <version>2.1-SNAPSHOT</version>
+      <version>${maven.version}</version>
     </dependency>
     <dependency>
       <groupId>org.apache.maven.artifact</groupId>
       <artifactId>maven-artifact</artifactId>
-      <version>3.0-SONATYPE-653272</version>
+      <version>${maven.artifact.version}</version>
     </dependency>
     <dependency>
       <groupId>org.apache.maven</groupId>
       <artifactId>maven-core</artifactId>
-      <version>2.1-SNAPSHOT</version>
+      <version>${maven.version}</version>
     </dependency>
     <dependency>
       <groupId>org.sonatype.appbooter.plexus-booters</groupId>
       <artifactId>plexus-app-booter</artifactId>
-      <version>1.0</version>
+      <version>1.1</version>
     </dependency>
     <dependency>
       <groupId>velocity</groupId>
