@@ -222,7 +222,7 @@ public class PlexusRunMojo
         }
     }
 
-    private Commandline buildCommandLine()
+    protected Commandline buildCommandLine()
         throws MojoFailureException, MojoExecutionException
     {
         File platformFile = getPlatformFile();
@@ -488,12 +488,12 @@ public class PlexusRunMojo
         }
     }
 
-    private static final class ShutdownHook
+    protected static final class ShutdownHook
         implements Runnable
     {
         private ControllerClient client;
 
-        private ShutdownHook( ControllerClient client )
+        protected ShutdownHook( ControllerClient client )
         {
             this.client = client;
         }
@@ -685,5 +685,20 @@ public class PlexusRunMojo
     public void shutdown()
     {
         shouldShutdown = true;
+    }
+    
+    protected File getConfiguration()
+    {
+        return this.configuration;
+    }
+    
+    protected ControllerClient getControllerClient()
+    {
+        return this.controlClient;
+    }
+    
+    protected void setControllerClient(ControllerClient controlClient)
+    {
+        this.controlClient = controlClient;
     }
 }
