@@ -701,4 +701,13 @@ public class PlexusRunMojo
     {
         this.controlClient = controlClient;
     }
+    
+    protected Map<String,String> getSystemProperties()
+    {
+        if ( this.systemProperties == null )
+        {
+            this.systemProperties = new HashMap<String,String>();
+        }
+        return this.systemProperties;
+    }
 }
