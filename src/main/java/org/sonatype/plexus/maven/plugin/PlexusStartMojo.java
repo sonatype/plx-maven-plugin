@@ -39,15 +39,12 @@ import org.sonatype.appbooter.ctl.Service;
 public class PlexusStartMojo extends PlexusRunMojo
     implements Mojo, Service
 {
-    public PlexusStartMojo()
-    {
-        super();
-        getSystemProperties().put( PlexusContainerHost.DISABLE_BLOCKING, "true" );
-    }
     @SuppressWarnings( "unchecked" )
     public void execute()
         throws MojoExecutionException, MojoFailureException
     {
+        getSystemProperties().put( PlexusContainerHost.DISABLE_BLOCKING, "true" );
+        
         if ( !getConfiguration().exists() )
         {
             throw new MojoFailureException(
