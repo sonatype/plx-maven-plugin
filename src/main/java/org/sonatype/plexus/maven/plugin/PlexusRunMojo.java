@@ -67,8 +67,6 @@ public class PlexusRunMojo
 {
     public static final int RUN_SERVICE_CONTROL_PORT = 32002;
     
-    public static final String DISABLE_BLOCKING = "plexus.blocking.disabled";
-
     private static final String STOP_COMMAND = "shutdown";
 
     private static final long WAIT_TIMEOUT = 5000;
@@ -218,11 +216,7 @@ public class PlexusRunMojo
                                               e );
         }
         
-        if ( disableBlocking )
-        {
-            this.systemProperties.put( DISABLE_BLOCKING, Boolean.toString( true ) );
-        }
-        else
+        if ( !disableBlocking )
         {
             getLog().info( "Enabling shutdown hook for remote plexus application." );
             Runtime.getRuntime().addShutdownHook( new Thread( new ShutdownHook( controlServiceClient ) ) );
