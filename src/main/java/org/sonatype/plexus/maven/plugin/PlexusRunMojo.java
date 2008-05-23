@@ -216,11 +216,8 @@ public class PlexusRunMojo
                                               e );
         }
         
-        if ( !disableBlocking )
-        {
-            getLog().info( "Enabling shutdown hook for remote plexus application." );
-            Runtime.getRuntime().addShutdownHook( new Thread( new ShutdownHook( controlServiceClient ) ) );
-        }
+        getLog().info( "Enabling shutdown hook for remote plexus application." );
+        Runtime.getRuntime().addShutdownHook( new Thread( new ShutdownHook( controlServiceClient ) ) );
 
         Commandline cli = buildCommandLine();
 
