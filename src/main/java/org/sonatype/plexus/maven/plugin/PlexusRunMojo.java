@@ -15,6 +15,16 @@
   */
 package org.sonatype.plexus.maven.plugin;
 
+import java.io.BufferedReader;
+import java.io.File;
+import java.io.IOException;
+import java.io.InputStreamReader;
+import java.net.UnknownHostException;
+import java.util.HashMap;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Map;
+
 import org.apache.maven.artifact.Artifact;
 import org.apache.maven.artifact.factory.ArtifactFactory;
 import org.apache.maven.artifact.repository.ArtifactRepository;
@@ -43,16 +53,6 @@ import org.sonatype.plexus.classworlds.model.ClassworldsRealmConfiguration;
 import org.sonatype.plexus.classworlds.validator.ClassworldsModelValidator;
 import org.sonatype.plexus.classworlds.validator.ClassworldsValidationResult;
 
-import java.io.BufferedReader;
-import java.io.File;
-import java.io.IOException;
-import java.io.InputStreamReader;
-import java.net.UnknownHostException;
-import java.util.HashMap;
-import java.util.LinkedHashSet;
-import java.util.List;
-import java.util.Map;
-
 /**
  * @author Jason van Zyl
  * @author John Casey
@@ -66,6 +66,8 @@ public class PlexusRunMojo
     implements Mojo, Service
 {
     public static final int RUN_SERVICE_CONTROL_PORT = 32002;
+    
+    public static final String DISABLE_BLOCKING = "plexus.blocking.disabled";
 
     private static final String STOP_COMMAND = "shutdown";
 
@@ -75,6 +77,10 @@ public class PlexusRunMojo
     // Maven Parameters
     // ------------------------------------------------------------------------
 
+    /**
+     * @parameter default-value="false" expression="${plx.disableBlocking}"
+     */
+    private boolean disableBlocking;
     /**
      * @parameter default-value="false" expression="${plx.debug}"
      */
@@ -161,6 +167,8 @@ public class PlexusRunMojo
     private List<ArtifactRepository> remoteRepositories;
 
     private ControllerClient controlClient;
+    
+    private ControllerClient controlServiceClient;
 
     private Log log;
 
@@ -169,6 +177,12 @@ public class PlexusRunMojo
     private boolean shouldShutdown = false;
 
     private boolean isStopped = false;
+    
+    private Thread managementThread;
+    
+    StreamPumper outPumper = null;
+    
+    StreamPumper errPumper = null;
 
     @SuppressWarnings( "unchecked" )
     public void execute()
@@ -190,35 +204,56 @@ public class PlexusRunMojo
                                               "Remote-control client for plexus application cannot resolve localhost.",
                                               e );
         }
-
-        // TODO: Someday, Maven's CLI should insert a property to this effect,
-        // to allow plugins to detect non-embedded scenarios and add shutdown hooks...
-        // if that happens, we may need to revisit this section to sync the property name.
-        if ( Boolean.valueOf( System.getProperty( "maven.standalone.mode", "true" ) ) )
-        {
-            getLog().info( "Enabling shutdown hook for remote plexus application." );
-            Runtime.getRuntime().addShutdownHook( new Thread( new ShutdownHook( controlClient ) ) );
-        }
-
-        Commandline cli = buildCommandLine();
-
+        
+        initManagementThread();
+        
         try
         {
-            OutOfProcessController.manage( this, RUN_SERVICE_CONTROL_PORT );
+            controlServiceClient = new ControllerClient( RUN_SERVICE_CONTROL_PORT );
         }
         catch ( UnknownHostException e )
         {
             throw new MojoExecutionException(
-                                              "Failed to initialize management of launch service for plexus application.",
+                                              "Remote-control client for plexus service cannot resolve localhost.",
                                               e );
         }
+        
+        if ( disableBlocking )
+        {
+            this.systemProperties.put( DISABLE_BLOCKING, Boolean.toString( true ) );
+        }
+        else
+        {
+            getLog().info( "Enabling shutdown hook for remote plexus application." );
+            Runtime.getRuntime().addShutdownHook( new Thread( new ShutdownHook( controlServiceClient ) ) );
+        }
+
+        Commandline cli = buildCommandLine();
 
         executeCommandLine( cli );
-        int result = getExitCode();
-
-        if ( result != 0 )
+        
+        if ( !disableBlocking )
         {
-            getLog().warn( "Application exited with value: " + result );
+            int result = getExitCode();
+
+            if ( result != 0 )
+            {
+                getLog().warn( "Application exited with value: " + result );
+            }   
+        }
+    }
+    
+    private void initManagementThread()
+    {
+        getLog().info( "\n\nStarting control socket on port: " + RUN_SERVICE_CONTROL_PORT + "\n" );
+
+        try
+        {
+            managementThread = OutOfProcessController.manage( this, RUN_SERVICE_CONTROL_PORT );
+        }
+        catch ( UnknownHostException e )
+        {
+            getLog().info( "Unable to start management thread: " + e.getMessage() );
         }
     }
 
@@ -245,28 +280,25 @@ public class PlexusRunMojo
            .setLine( "-Dclassworlds.conf=\'" + classworldsConf.getAbsolutePath() + "\'" );
         cli.createArg().setLine( "-jar" );
         cli.createArg().setLine( "\'" + platformFile.getAbsolutePath() + "\'" );
-
+        
         if ( outputDebugMessages() )
         {
             getLog().info( "Executing:\n\n" + StringUtils.join( cli.getCommandline(), " " ) );
         }
-
         return cli;
     }
 
     private void stop()
         throws MojoExecutionException
     {
-        getLog().info( "Stopping plexus application." );
-
-        if ( controlClient.isShutdown() )
-        {
-            return;
-        }
+        getLog().info( "Stop Running Application" );
 
         try
         {
-            controlClient.shutdown();
+            if ( !controlClient.isShutdown() )
+            {
+                controlClient.shutdown();
+            }
         }
         catch ( ControlConnectionException e )
         {
@@ -285,6 +317,13 @@ public class PlexusRunMojo
         {
             throw new MojoExecutionException( "Failed to shutdown plexus host.", e );
         }
+        finally
+        {
+            stopStreamPumps();
+            //Note just marking as closed, so shutdown handler wont do anything
+            controlServiceClient.close();
+            stopManagementThread();
+        }
     }
 
     @SuppressWarnings( "unchecked" )
@@ -301,13 +340,11 @@ public class PlexusRunMojo
                 platformVersion = managed.getVersion();
             }
         }
-
         Artifact platform = factory.createArtifact( platformArtifact.getGroupId(),
                                                     platformArtifact.getArtifactId(),
                                                     platformVersion,
                                                     null,
                                                     platformArtifact.getType() );
-
         try
         {
             resolver.resolve( platform, remoteRepositories, localRepository );
@@ -322,15 +359,13 @@ public class PlexusRunMojo
             throw new MojoExecutionException( "Cannot find platform artifact: " + platform.getId(),
                                               e );
         }
-
+        
         File platformFile = platform.getFile();
-
         if ( outputDebugMessages() )
         {
             getLog().info( "Using plexus platform: " + platformArtifact + "\nFile: "
                            + platformFile.getAbsolutePath() );
         }
-
         return platformFile;
     }
 
@@ -347,7 +382,7 @@ public class PlexusRunMojo
         {
             throw new MojoExecutionException( e.getMessage(), e );
         }
-
+        
         if ( outputDebugMessages() )
         {
             getLog().info( "Saving Classworlds configuration at: "
@@ -444,47 +479,16 @@ public class PlexusRunMojo
         return paths;
     }
 
-    private void stopStreamPumps( StreamPumper outPumper,
-                                  StreamPumper errPumper )
+    private void stopStreamPumps()
     {
-        try
+        if ( outPumper != null )
         {
-            if ( outPumper != null )
-            {
-                synchronized ( outPumper )
-                {
-                    if ( !outPumper.isDone() )
-                    {
-                        outPumper.wait( WAIT_TIMEOUT );
-                    }
-                }
-            }
-
-            if ( errPumper != null )
-            {
-                synchronized ( errPumper )
-                {
-                    if ( !errPumper.isDone() )
-                    {
-                        errPumper.wait( WAIT_TIMEOUT );
-                    }
-                }
-            }
+            outPumper.close();
         }
-        catch ( InterruptedException e )
-        {
-        }
-        finally
-        {
-            if ( outPumper != null )
-            {
-                outPumper.close();
-            }
 
-            if ( errPumper != null )
-            {
-                errPumper.close();
-            }
+        if ( errPumper != null )
+        {
+            errPumper.close();
         }
     }
 
@@ -504,6 +508,7 @@ public class PlexusRunMojo
             {
                 if ( !client.isShutdown() )
                 {
+                    System.out.println( "ShutdownHook stopping plexus application." );
                     client.shutdown();
                 }
             }
@@ -594,14 +599,11 @@ public class PlexusRunMojo
 
         Process p = null;
 
-        StreamPumper outPumper = null;
-        StreamPumper errPumper = null;
-
         Thread shutdownReminderThread = null;
         try
         {
             p = cli.execute();
-
+            
             outPumper = new StreamPumper( p.getInputStream(), out );
             errPumper = new StreamPumper( p.getErrorStream(), out );
 
@@ -611,23 +613,26 @@ public class PlexusRunMojo
             outPumper.start();
             errPumper.start();
 
-            shutdownReminderThread = new Thread( new ReminderRunnable( PlexusRunMojo.this ) );
-            shutdownReminderThread.setPriority( Thread.MIN_PRIORITY );
-
-            shutdownReminderThread.start();
-
-            BufferedReader inReader = new BufferedReader( new InputStreamReader( System.in ) );
-            String line = null;
-            do
+            if ( !disableBlocking )
             {
-                if ( inReader.ready() )
+                shutdownReminderThread = new Thread( new ReminderRunnable( PlexusRunMojo.this ) );
+                shutdownReminderThread.setPriority( Thread.MIN_PRIORITY );
+    
+                shutdownReminderThread.start();
+    
+                BufferedReader inReader = new BufferedReader( new InputStreamReader( System.in ) );
+                String line = null;
+                do
                 {
-                    line = inReader.readLine().trim();
+                    if ( inReader.ready() )
+                    {
+                        line = inReader.readLine().trim();
+                    }
                 }
+                while ( !shouldShutdown && !STOP_COMMAND.equals( line ) );
+    
+                shutdownReminderThread.interrupt();
             }
-            while ( !shouldShutdown && !STOP_COMMAND.equals( line ) );
-
-            shutdownReminderThread.interrupt();
         }
         catch ( CommandLineException e )
         {
@@ -640,74 +645,75 @@ public class PlexusRunMojo
         }
         finally
         {
-            stop();
-            if ( p != null )
+            if ( !disableBlocking )
             {
-                try
+                stop();
+                
+                if ( shutdownReminderThread != null && shutdownReminderThread.isAlive() )
                 {
-                    exitCode = p.waitFor();
-                }
-                catch ( InterruptedException e )
-                {
-                    getLog().warn( "Interrupted while waiting for remote plexus process to stop.",
-                                   e );
-                    exitCode = -1;
+                    shutdownReminderThread.interrupt();
+                    try
+                    {
+                        shutdownReminderThread.join( WAIT_TIMEOUT );
+                    }
+                    catch ( InterruptedException e )
+                    {
+                    }
                 }
             }
-
-            if ( shutdownReminderThread != null && shutdownReminderThread.isAlive() )
-            {
-                shutdownReminderThread.interrupt();
-                try
-                {
-                    shutdownReminderThread.join( WAIT_TIMEOUT );
-                }
-                catch ( InterruptedException e )
-                {
-                }
-            }
-
-            stopStreamPumps( outPumper, errPumper );
         }
-
-        isStopped = true;
-        synchronized ( this )
+        
+        if ( !disableBlocking )
         {
-            notify();
+            isStopped = true;
+            
+            synchronized ( this )
+            {
+                notify();
+            }
         }
     }
 
     public boolean isShutdown()
     {
-        return false;
+        return isStopped;
     }
 
     public void shutdown()
     {
+        getLog().info( "PlexusRunMojo shutdown request" );
         shouldShutdown = true;
-    }
-    
-    protected File getConfiguration()
-    {
-        return this.configuration;
-    }
-    
-    protected ControllerClient getControllerClient()
-    {
-        return this.controlClient;
-    }
-    
-    protected void setControllerClient(ControllerClient controlClient)
-    {
-        this.controlClient = controlClient;
-    }
-    
-    protected Map<String,String> getSystemProperties()
-    {
-        if ( this.systemProperties == null )
+        
+        if ( disableBlocking && !isShutdown() )
         {
-            this.systemProperties = new HashMap<String,String>();
+            isStopped = true;
+            try
+            {                
+                stop();
+            }
+            catch( MojoExecutionException e )
+            {
+                getLog().info( "Cannot connect to control socket on plexus application to initiate shutdown sequence.", e );
+            }
         }
-        return this.systemProperties;
+    }
+    
+    private void stopManagementThread()
+    {
+        if ( managementThread != null && managementThread.isAlive() )
+        {
+            synchronized( managementThread )
+            {
+                managementThread.interrupt();
+
+                try
+                {
+                    managementThread.join( WAIT_TIMEOUT );
+                }
+                catch ( InterruptedException e )
+                {
+                }
+            }
+        }
     }
 }

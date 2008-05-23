@@ -22,7 +22,6 @@ import org.apache.maven.plugin.Mojo;
 import org.apache.maven.plugin.MojoExecutionException;
 import org.apache.maven.plugin.MojoFailureException;
 import org.apache.maven.plugin.logging.Log;
-import org.sonatype.appbooter.PlexusContainerHost;
 import org.sonatype.appbooter.ctl.ControlConnectionException;
 import org.sonatype.appbooter.ctl.ControllerClient;
 
@@ -41,30 +40,6 @@ public class PlexusStopMojo
     public void execute()
         throws MojoExecutionException, MojoFailureException
     {
-        getLog().info( "Stopping plexus application." );
-        try
-        {
-            new ControllerClient( PlexusContainerHost.CONTROL_PORT ).shutdown();
-        }
-        catch ( ControlConnectionException e )
-        {
-            throw new MojoExecutionException(
-                                              "Failed to connect to plexus application for shutdown.",
-                                              e );
-        }
-        catch ( UnknownHostException e )
-        {
-            throw new MojoExecutionException(
-                                              "Failed to connect to plexus application for shutdown.",
-                                              e );
-        }
-        catch ( IOException e )
-        {
-            throw new MojoExecutionException(
-                                              "Failed to send shutdown command to plexus application.",
-                                              e );
-        }
-
         getLog().info( "Stopping plx:run mojo." );
         try
         {
@@ -72,7 +47,7 @@ public class PlexusStopMojo
         }
         catch ( ControlConnectionException e )
         {
-            getLog().info( "Failed to connect to plx:run mojo for shutdown. It may have terminated with the plexus application." );
+            throw new MojoExecutionException( "Failed to connect to plx:run mojo for shutdown.", e );
         }
         catch ( UnknownHostException e )
         {
