@@ -186,6 +186,10 @@ public class PlexusRunMojo
     public void execute()
         throws MojoExecutionException, MojoFailureException
     {
+        //Get the control objects for the 2 running threads we will be handling, the first (controlClient) is our access to the PlexusContainerHost
+        //NOTE: currently only PlexusContainerHost is supported as launcher class, as there are a number of areas throughout where it is directly
+        //referenced.
+        //The second object we get (controlServiceClient) is for this object the plx:run mojo, strictly used for the ShutdownHook to be able to stop plx:run if necessary
         if ( !configuration.exists() )
         {
             throw new MojoFailureException(
@@ -216,6 +220,7 @@ public class PlexusRunMojo
                                               e );
         }
         
+        //In case plx:stop isn't run at some point later, and this is a non-blocking instance, here is the backup plan
         getLog().info( "Enabling shutdown hook for remote plexus application." );
         Runtime.getRuntime().addShutdownHook( new Thread( new ShutdownHook( controlServiceClient ) ) );
 
@@ -223,6 +228,7 @@ public class PlexusRunMojo
 
         executeCommandLine( cli );
         
+        //If blocking, we just wait for cli to complete, otherwise return now
         if ( !disableBlocking )
         {
             int result = getExitCode();
@@ -284,6 +290,7 @@ public class PlexusRunMojo
     {
         getLog().info( "Stop Running Application" );
 
+        //First thing, take down the plexus container, to stop the service
         try
         {
             if ( !controlClient.isShutdown() )
@@ -310,9 +317,11 @@ public class PlexusRunMojo
         }
         finally
         {
+            //Then stop the streaming of output
             stopStreamPumps();
             //Note just marking as closed, so shutdown handler wont do anything
             controlServiceClient.close();
+            //The kill the management handler
             stopManagementThread();
         }
     }
@@ -497,9 +506,11 @@ public class PlexusRunMojo
         {
             try
             {
+                //If not closed normally...
                 if ( !client.isShutdown() )
                 {
                     System.out.println( "ShutdownHook stopping plexus application." );
+                    //Do it now
                     client.shutdown();
                 }
             }
