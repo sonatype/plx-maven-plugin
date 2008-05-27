@@ -285,7 +285,7 @@ public class PlexusRunMojo
         return cli;
     }
 
-    private void stop()
+    private void stopPlexusRun()
         throws MojoExecutionException
     {
         getLog().info( "Stop Running Application" );
@@ -649,7 +649,7 @@ public class PlexusRunMojo
         {
             if ( !disableBlocking )
             {
-                stop();
+                stopPlexusRun();
                 
                 if ( shutdownReminderThread != null && shutdownReminderThread.isAlive() )
                 {
@@ -675,30 +675,6 @@ public class PlexusRunMojo
             }
         }
     }
-
-    public boolean isShutdown()
-    {
-        return isStopped;
-    }
-
-    public void shutdown()
-    {
-        getLog().info( "PlexusRunMojo shutdown request" );
-        shouldShutdown = true;
-        
-        if ( disableBlocking && !isShutdown() )
-        {
-            isStopped = true;
-            try
-            {                
-                stop();
-            }
-            catch( MojoExecutionException e )
-            {
-                getLog().info( "Cannot connect to control socket on plexus application to initiate shutdown sequence.", e );
-            }
-        }
-    }
     
     private void stopManagementThread()
     {
@@ -716,6 +692,70 @@ public class PlexusRunMojo
                 {
                 }
             }
+        }
+    }
+
+    public boolean isShutdown()
+    {
+        return isStopped;
+    }
+
+    public void shutdown()
+    {
+        getLog().info( "PlexusRunMojo shutdown request" );
+        shouldShutdown = true;
+        
+        if ( disableBlocking && !isShutdown() )
+        {
+            isStopped = true;
+            try
+            {                
+                stopPlexusRun();
+            }
+            catch( MojoExecutionException e )
+            {
+                getLog().info( "Cannot connect to control socket on plexus application to initiate shutdown sequence.", e );
+            }
+        }
+    }
+    
+    public boolean isStopped()
+    {
+        getLog().info( "isStopped not supported by this Service implementation" );
+        return false;
+    }
+    
+    public void stop()
+    {
+        //just pass on to the plexus container host
+        try
+        {
+            controlClient.stop();
+        }
+        catch ( ControlConnectionException e )
+        {
+            getLog().error( "stop failed", e );
+        }
+        catch ( IOException e )
+        {
+            getLog().error( "stop failed", e );
+        }
+    }
+    
+    public void start()
+    {
+        //just pass on to the plexus container host
+        try
+        {
+            controlClient.start();
+        }
+        catch ( ControlConnectionException e )
+        {
+            getLog().error( "start failed", e );
+        }
+        catch ( IOException e )
+        {
+            getLog().error( "start failed", e );
         }
     }
 }
