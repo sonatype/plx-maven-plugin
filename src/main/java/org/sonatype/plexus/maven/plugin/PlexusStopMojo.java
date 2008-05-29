@@ -1,7 +1,7 @@
 /**
-  * Copyright (C) 2008 Sonatype Inc. 
+  * Copyright (C) 2008 Sonatype Inc.
   * Sonatype Inc, licenses this file to you under the Apache License,
-  * Version 2.0 (the "License"); you may not use this file except in 
+  * Version 2.0 (the "License"); you may not use this file except in
   * compliance with the License.  You may obtain a copy of the License at
   *
   * http://www.apache.org/licenses/LICENSE-2.0
@@ -15,15 +15,16 @@
   */
 package org.sonatype.plexus.maven.plugin;
 
-import java.io.IOException;
-import java.net.UnknownHostException;
-
 import org.apache.maven.plugin.Mojo;
 import org.apache.maven.plugin.MojoExecutionException;
 import org.apache.maven.plugin.MojoFailureException;
 import org.apache.maven.plugin.logging.Log;
+import org.sonatype.appbooter.PlexusContainerHost;
 import org.sonatype.appbooter.ctl.ControlConnectionException;
 import org.sonatype.appbooter.ctl.ControllerClient;
+
+import java.io.IOException;
+import java.net.UnknownHostException;
 
 /**
  * @goal stop
@@ -40,22 +41,22 @@ public class PlexusStopMojo
     public void execute()
         throws MojoExecutionException, MojoFailureException
     {
-        getLog().info( "Stopping plx:run mojo." );
+        getLog().info( "Stopping plexus application." );
         try
         {
-            new ControllerClient( PlexusRunMojo.RUN_SERVICE_CONTROL_PORT ).shutdown();
+            new ControllerClient( PlexusContainerHost.CONTROL_PORT ).shutdown();
         }
         catch ( ControlConnectionException e )
         {
-            throw new MojoExecutionException( "Failed to connect to plx:run mojo for shutdown.", e );
+            throw new MojoExecutionException( "Failed to connect to plexus application for shutdown.", e );
         }
         catch ( UnknownHostException e )
         {
-            throw new MojoExecutionException( "Failed to connect to plx:run mojo for shutdown.", e );
+            throw new MojoExecutionException( "Failed to connect to plexus application for shutdown.", e );
         }
         catch ( IOException e )
         {
-            throw new MojoExecutionException( "Failed to connect to plx:run mojo for shutdown.", e );
+            throw new MojoExecutionException( "Failed to connect to plexus application for shutdown.", e );
         }
     }
 
