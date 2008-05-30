@@ -38,13 +38,25 @@ public class PlexusStopMojo
 
     private Log log;
 
+    /**
+     * Uses DEFAULT_CONTROL_PORT from {@link PlexusContainerHost} by default.
+     * <br/>
+     * This is the port used to connect to the remote application controller,
+     * in order to issue the shutdown command.
+     *
+     * @parameter expression="${plx.controlPort}" default-value="-1"
+     */
+    private int controlPort;
+
     public void execute()
         throws MojoExecutionException, MojoFailureException
     {
         getLog().info( "Stopping plexus application." );
+        ControllerClient client = null;
         try
         {
-            new ControllerClient( PlexusContainerHost.CONTROL_PORT ).shutdown();
+            client = new ControllerClient( controlPort > -1 ? controlPort : PlexusContainerHost.DEFAULT_CONTROL_PORT );
+            client.shutdown();
         }
         catch ( ControlConnectionException e )
         {
@@ -57,6 +69,13 @@ public class PlexusStopMojo
         catch ( IOException e )
         {
             throw new MojoExecutionException( "Failed to connect to plexus application for shutdown.", e );
+        }
+        finally
+        {
+            if ( client != null )
+            {
+                client.close();
+            }
         }
     }
 
