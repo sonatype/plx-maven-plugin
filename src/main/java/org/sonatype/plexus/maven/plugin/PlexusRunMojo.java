@@ -265,13 +265,28 @@ public class PlexusRunMojo
 
         executeCommandLine( cli );
 
-        getLog().info( "Sleeping 5 seconds for application to start." );
-        try
+        if ( debug )
         {
-            Thread.sleep( 5000 );
+            getLog().info( "\n\n\nWaiting for you to attach your debugger. Press -ENTER- when attached." );
+            try
+            {
+                System.in.read();
+            }
+            catch ( IOException e )
+            {
+                getLog().info( "Failed to read from System.in. Proceeding anyway..." );
+            }
         }
-        catch ( InterruptedException e )
+        else
         {
+            getLog().info( "Sleeping 5 seconds for application to start." );
+            try
+            {
+                Thread.sleep( 5000 );
+            }
+            catch ( InterruptedException e )
+            {
+            }
         }
 
         if ( !disableBlocking )
