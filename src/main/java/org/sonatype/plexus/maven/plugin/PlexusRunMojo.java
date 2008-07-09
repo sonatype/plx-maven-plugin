@@ -358,11 +358,18 @@ public class PlexusRunMojo
            .setLine( "-Dclassworlds.conf=\'" + classworldsConf.getAbsolutePath() + "\'" );
         cli.createArg().setLine( "-jar" );
         cli.createArg().setLine( "\'" + platformFile.getAbsolutePath() + "\'" );
+        
+        // add the control port if it was defined
+        if( controlPort > -1)
+        {
+            cli.createArg().setLine( Integer.toString( controlPort ) );
+        }
 
         if ( outputDebugMessages() )
         {
             getLog().info( "Executing:\n\n" + StringUtils.join( cli.getCommandline(), " " ) );
         }
+       
         return cli;
     }
 
@@ -464,15 +471,16 @@ public class PlexusRunMojo
 
         Map<String, String> sysProps = new HashMap<String, String>();
 
-        // allow the override of the basedir...
-        sysProps.put( "basedir", basedir.getAbsolutePath() );
-
         if ( systemProperties != null && !systemProperties.isEmpty() )
         {
             getLog().info( "Using system properties:\n\n" + systemProperties );
             sysProps.putAll( systemProperties );
         }
 
+        // allow the override of the basedir...
+        // NOTE, this MUST be after the putAll, because this value gets lost. (its not suppose to...)
+        sysProps.put( "basedir", basedir.getAbsolutePath() );
+        
         sysProps.put( PlexusContainerHost.CONFIGURATION_FILE_PROPERTY,
                       configuration.getAbsolutePath() );
         sysProps.put( PlexusContainerHost.ENABLE_CONTROL_SOCKET, "true" );
