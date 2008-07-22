@@ -1,19 +1,24 @@
 /**
-  * Copyright (C) 2008 Sonatype Inc.
-  * Sonatype Inc, licenses this file to you under the Apache License,
-  * Version 2.0 (the "License"); you may not use this file except in
-  * compliance with the License.  You may obtain a copy of the License at
-  *
-  * http://www.apache.org/licenses/LICENSE-2.0
-  *
-  * Unless required by applicable law or agreed to in writing,
-  * software distributed under the License is distributed on an
-  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
-  * KIND, either express or implied.  See the License for the
-  * specific language governing permissions and limitations
-  * under the License.
-  */
+ * Copyright (C) 2008 Sonatype Inc.
+ * Sonatype Inc, licenses this file to you under the Apache License,
+ * Version 2.0 (the "License"); you may not use this file except in
+ * compliance with the License.  You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
 package org.sonatype.plexus.maven.plugin;
+
+import java.io.File;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Map;
 
 import org.apache.maven.artifact.Artifact;
 import org.apache.maven.artifact.factory.ArtifactFactory;
@@ -26,35 +31,26 @@ import org.apache.maven.plugin.MojoExecutionException;
 import org.apache.maven.plugin.MojoFailureException;
 import org.apache.maven.plugin.logging.Log;
 import org.apache.maven.project.MavenProject;
-import org.codehaus.plexus.util.StringUtils;
-import org.codehaus.plexus.util.cli.CommandLineException;
-import org.codehaus.plexus.util.cli.Commandline;
-import org.codehaus.plexus.util.cli.StreamConsumer;
+import org.codehaus.plexus.PlexusConstants;
+import org.codehaus.plexus.PlexusContainer;
+import org.codehaus.plexus.component.repository.exception.ComponentLookupException;
+import org.codehaus.plexus.context.Context;
+import org.codehaus.plexus.context.ContextException;
+import org.codehaus.plexus.logging.Logger;
+import org.codehaus.plexus.logging.LoggerManager;
+import org.codehaus.plexus.personality.plexus.lifecycle.phase.Contextualizable;
 import org.codehaus.plexus.util.cli.StreamPumper;
+import org.sonatype.appbooter.ForkedAppBooter;
 import org.sonatype.appbooter.PlexusContainerHost;
-import org.sonatype.appbooter.ctl.ControlConnectionException;
+import org.sonatype.appbooter.ctl.AppBooterServiceException;
 import org.sonatype.appbooter.ctl.ControllerClient;
-import org.sonatype.plexus.classworlds.io.ClassworldsConfWriter;
-import org.sonatype.plexus.classworlds.io.ClassworldsIOException;
-import org.sonatype.plexus.classworlds.model.ClassworldsAppConfiguration;
 import org.sonatype.plexus.classworlds.model.ClassworldsRealmConfiguration;
-import org.sonatype.plexus.classworlds.validator.ClassworldsModelValidator;
-import org.sonatype.plexus.classworlds.validator.ClassworldsValidationResult;
-
-import java.io.File;
-import java.io.IOException;
-import java.net.UnknownHostException;
-import java.util.HashMap;
-import java.util.LinkedHashSet;
-import java.util.List;
-import java.util.Map;
 
 /**
- * Start a Plexus application, and optionally wait for Ctl-C to shut it down. Otherwise,
- * complete the mojo's execution with the application still running (useful for
- * integration testing). The application is started in a separate process, with
- * a control port listening for administrative commands.
- *
+ * Start a Plexus application, and optionally wait for Ctl-C to shut it down. Otherwise, complete the mojo's execution
+ * with the application still running (useful for integration testing). The application is started in a separate
+ * process, with a control port listening for administrative commands.
+ * 
  * @author Jason van Zyl
  * @author John Casey
  * @execute phase="test"
@@ -62,80 +58,85 @@ import java.util.Map;
  * @requiresDependencyResolution test
  */
 public class PlexusRunMojo
-    implements Mojo/*, Service*/
+    implements Mojo, Contextualizable /* , Service */
 {
     // ------------------------------------------------------------------------
     // Maven Parameters
     // ------------------------------------------------------------------------
 
     /**
-     * If true, do NOT wait for CTL-C to terminate the application, just start
-     * it and return. Future calls to plx:stop or direct use of the
-     * {@link ControllerClient} API can manage the application once started.
-     *
+     * If true, do NOT wait for CTL-C to terminate the application, just start it and return. Future calls to plx:stop
+     * or direct use of the {@link ControllerClient} API can manage the application once started.
+     * 
      * @parameter default-value="false" expression="${plx.disableBlocking}"
      */
     private boolean disableBlocking;
 
     /**
-     * Turns on debug mode, which uses the debugJavaCmd to start the plexus
-     * application instead of the normal javaCmd.
-     *
+     * If <code>disableBlocking</code> is true <code>sleepAfterStart</code> is the number of milliseconds to wait
+     * for the application to start up.
+     * 
+     * @parameter default-value="5000" expression="${plx.sleepAfterStart}"
+     */
+    private int sleepAfterStart;
+
+    /**
+     * Turns on debug mode, which uses the debugJavaCmd to start the plexus application instead of the normal javaCmd.
+     * 
      * @parameter default-value="false" expression="${plx.debug}"
      */
     private boolean debug;
 
     /**
-     * Output diagnostic information for the command line and classworlds configuration
-     * file generated by this mojo in order to start the application.
-     *
+     * Output diagnostic information for the command line and classworlds configuration file generated by this mojo in
+     * order to start the application.
+     * 
      * @parameter default-value="false" expression="${plx.debugOutput}"
      */
     private boolean debugOutput;
 
     /**
-     * Java command used to start the Plexus application under normal (non-debug)
-     * circumstances.
-     *
+     * Java command used to start the Plexus application under normal (non-debug) circumstances.
+     * 
      * @parameter default-value="java"
      */
     private String javaCmd;
 
     /**
      * Substitutes the given port into the expression '@DEBUG_PORT@' in your debugJavaCmd.
-     *
+     * 
      * @parameter default-value="5005" expression="${plx.debugPort}"
      */
     private int debugPort;
 
     /**
      * Substitutes 'y' or 'n' into the expression '@DEBUG_SUSPEND@' in your debugJavaCmd.
-     *
+     * 
      * @parameter default-value="true" expression="${plx.debugSuspend}"
      */
     private boolean debugSuspend;
 
     /**
-     * Java command used to start the Plexus application into debugging mode, which
-     * is meant to allow attachment of a remote application debugger via JPDA, etc.
-     *
-     * @parameter default-value="java -Xdebug -Xnoagent -Xrunjdwp:transport=dt_socket,server=y,suspend=@DEBUG_SUSPEND@,address=@DEBUG_PORT@ -Djava.compiler=NONE"
+     * Java command used to start the Plexus application into debugging mode, which is meant to allow attachment of a
+     * remote application debugger via JPDA, etc.
+     * 
+     * @parameter default-value="java -Xdebug -Xnoagent
+     *            -Xrunjdwp:transport=dt_socket,server=y,suspend=@DEBUG_SUSPEND@,address=@DEBUG_PORT@
+     *            -Djava.compiler=NONE"
      */
     private String debugJavaCmd;
 
     /**
-     * The class containing the main method that will be used to start up the Plexus
-     * container to initialize the application.
-     * <br/>
-     * CAUTION! Be sure you understand the ramifications before changing this!
-     *
+     * The class containing the main method that will be used to start up the Plexus container to initialize the
+     * application. <br/> CAUTION! Be sure you understand the ramifications before changing this!
+     * 
      * @parameter default-value="org.sonatype.appbooter.PlexusContainerHost"
      */
     private String launcherClass;
 
     /**
      * System properties passed on to the new java process.
-     *
+     * 
      * @parameter
      */
     private Map<String, String> systemProperties;
@@ -164,18 +165,17 @@ public class PlexusRunMojo
     private boolean includeTestClasspath;
 
     /**
-     * Artifact coordinate containing the platform classes for the application.
-     * These should include a plexus container, along with the launcherClass.
-     * <br/>
-     * Default is org.sonatype.appbooter.plexus-platforms:plexus-platform-base:1.0-SNAPSHOT
-     *
+     * Artifact coordinate containing the platform classes for the application. These should include a plexus container,
+     * along with the launcherClass. <br/> Default is
+     * org.sonatype.appbooter.plexus-platforms:plexus-platform-base:1.0-SNAPSHOT
+     * 
      * @parameter
      */
     private PlatformArtifact platformArtifact = PlatformArtifact.DEFAULT;
 
     /**
      * List of class paths to prepend to the classworlds configuration.
-     *
+     * 
      * @parameter
      */
     private List<String> prependClasspaths;
@@ -203,174 +203,71 @@ public class PlexusRunMojo
     private List<ArtifactRepository> remoteRepositories;
 
     /**
-     * Uses DEFAULT_CONTROL_PORT from {@link PlexusContainerHost} by default.
-     * <br/>
-     * This is the port used to administer the remote application. If you execute
-     * with disableBlocking == true, you may need to know this port to use the
-     * {@link ControllerClient} API directly (from integration-test JUnit code,
-     * for instance).
-     *
+     * Uses DEFAULT_CONTROL_PORT from {@link PlexusContainerHost} by default. <br/> This is the port used to administer
+     * the remote application. If you execute with disableBlocking == true, you may need to know this port to use the
+     * {@link ControllerClient} API directly (from integration-test JUnit code, for instance).
+     * 
      * @parameter expression="${plx.controlPort}" default-value="-1"
      */
     private int controlPort;
 
     private ControllerClient controlClient;
 
-//    private ControllerClient controlServiceClient;
-
     private Log log;
 
-//    private int exitCode = 0;
-//
-//    private boolean shouldShutdown = false;
-//
-//    private boolean isStopped = false;
-//
-//    private Thread managementThread;
-
-    StreamPumper outPumper = null;
-
-    StreamPumper errPumper = null;
+    private PlexusContainer container;
 
     @SuppressWarnings( "unchecked" )
     public void execute()
         throws MojoExecutionException, MojoFailureException
     {
-        //Get the control objects for the 2 running threads we will be handling, the first (controlClient) is our access to the PlexusContainerHost
-        //NOTE: currently only PlexusContainerHost is supported as launcher class, as there are a number of areas throughout where it is directly
-        //referenced.
-        //The second object we get (controlServiceClient) is for this object the plx:run mojo, strictly used for the ShutdownHook to be able to stop plx:run if necessary
-        if ( !configuration.exists() )
-        {
-            throw new MojoFailureException(
-                                            "There is no plexus.xml file present. Make sure you are in a directory where a Plexus application lives." );
-        }
 
+        // it would be WAY better to get this from a container already configured, but its really a pain to push the
+        // config values back into it. It makes the complexity of the code grow.... so what I did, is added setters and
+        // getters to the component....
+        MavenForkedAppBooter mavenForkedAppBooter = new MavenForkedAppBooter();
+
+        // grab the logger..
         try
         {
-            controlClient = new ControllerClient( controlPort > -1 ? controlPort : PlexusContainerHost.DEFAULT_CONTROL_PORT );
+            LoggerManager lm = (LoggerManager) this.container.lookup( LoggerManager.ROLE );
+            Logger logger = lm.getLoggerForComponent( ForkedAppBooter.ROLE );
+            mavenForkedAppBooter.enableLogging( logger );
         }
-        catch ( UnknownHostException e )
+        catch ( ComponentLookupException e )
         {
-            throw new MojoExecutionException(
-                                              "Remote-control client for plexus application cannot resolve localhost.",
-                                              e );
+            throw new MojoExecutionException( "Failed to pass a logger to the Plexus Component: "+ e.getMessage(), e );
         }
 
-        //In case plx:stop isn't run at some point later, and this is a non-blocking instance, here is the backup plan
-        getLog().info( "Enabling shutdown hook for remote plexus application." );
-        Runtime.getRuntime().addShutdownHook( new Thread( new ShutdownHook() ) );
+        // configure it...
+        mavenForkedAppBooter.setClassworldsRealmConfig( this.getClassworldsRealmConfig() );
+        mavenForkedAppBooter.setPlatformFile( this.getPlatformFile() );
 
-        Commandline cli = buildCommandLine();
+        mavenForkedAppBooter.setBasedir( this.basedir );
+        mavenForkedAppBooter.setConfiguration( this.configuration );
+        mavenForkedAppBooter.setControlClient( this.controlClient );
+        mavenForkedAppBooter.setControlPort( this.controlPort );
+        mavenForkedAppBooter.setDebug( this.debug );
+        mavenForkedAppBooter.setDebugJavaCmd( this.debugJavaCmd );
+        mavenForkedAppBooter.setDebugPort( this.debugPort );
+        mavenForkedAppBooter.setDebugSuspend( this.debugSuspend );
+        mavenForkedAppBooter.setJavaCmd( this.javaCmd );
+        mavenForkedAppBooter.setLauncherClass( this.launcherClass );
+        mavenForkedAppBooter.setSleepAfterStart( this.sleepAfterStart );
+        mavenForkedAppBooter.setSystemProperties( this.systemProperties );
+        mavenForkedAppBooter.setTempDir( this.targetDir );
+        mavenForkedAppBooter.setDisableBlocking( this.disableBlocking );
 
-        executeCommandLine( cli );
-
-        if ( debug )
+        // run it!
+        try
         {
-            getLog().info( "\n\n\nWaiting for you to attach your debugger. Press -ENTER- when attached." );
-            try
-            {
-                System.in.read();
-            }
-            catch ( IOException e )
-            {
-                getLog().info( "Failed to read from System.in. Proceeding anyway..." );
-            }
+            mavenForkedAppBooter.start();
         }
-        else
+        catch ( AppBooterServiceException e )
         {
-            getLog().info( "Sleeping 5 seconds for application to start." );
-            try
-            {
-                Thread.sleep( 5000 );
-            }
-            catch ( InterruptedException e )
-            {
-            }
+            throw new MojoFailureException( e.getMessage(), e );
         }
 
-        if ( !disableBlocking )
-        {
-            try
-            {
-                controlClient.shutdownOnClose();
-            }
-            catch ( ControlConnectionException e )
-            {
-                throw new MojoExecutionException( "Failed to send shutdown-on-close command to application host. You may need to terminate the application manually.", e );
-            }
-            catch ( IOException e )
-            {
-                throw new MojoExecutionException( "Failed to send shutdown-on-close command to application host. You may need to terminate the application manually.", e );
-            }
-
-            try
-            {
-                synchronized ( this )
-                {
-                    try
-                    {
-                        wait();
-                    }
-                    catch ( InterruptedException e )
-                    {
-                    }
-                }
-            }
-            finally
-            {
-                stopStreamPumps();
-                controlClient.close();
-            }
-        }
-
-    }
-
-    protected Commandline buildCommandLine()
-        throws MojoFailureException, MojoExecutionException
-    {
-        File platformFile = getPlatformFile();
-        ClassworldsAppConfiguration config = buildConfig();
-        File classworldsConf = writeConfig( config );
-
-        Commandline cli = new Commandline();
-
-        String cmd = javaCmd;
-        if ( debug )
-        {
-            cmd = debugJavaCmd;
-            cmd = StringUtils.replace( cmd, "@DEBUG_PORT@", String.valueOf( debugPort ) );
-            cmd = StringUtils.replace( cmd, "@DEBUG_SUSPEND@", ( debugSuspend ? "y" : "n" ) );
-        }
-
-        String[] baseCommand = cmd.split( " " );
-
-        cli.setExecutable( baseCommand[0] );
-        if ( baseCommand.length > 1 )
-        {
-            for ( int i = 1; i < baseCommand.length; i++ )
-            {
-                cli.createArg().setLine( baseCommand[i] );
-            }
-        }
-
-        cli.createArg()
-           .setLine( "-Dclassworlds.conf=\'" + classworldsConf.getAbsolutePath() + "\'" );
-        cli.createArg().setLine( "-jar" );
-        cli.createArg().setLine( "\'" + platformFile.getAbsolutePath() + "\'" );
-        
-        // add the control port if it was defined
-        if( controlPort > -1)
-        {
-            cli.createArg().setLine( Integer.toString( controlPort ) );
-        }
-
-        if ( outputDebugMessages() )
-        {
-            getLog().info( "Executing:\n\n" + StringUtils.join( cli.getCommandline(), " " ) );
-        }
-       
-        return cli;
     }
 
     @SuppressWarnings( "unchecked" )
@@ -387,56 +284,28 @@ public class PlexusRunMojo
                 platformVersion = managed.getVersion();
             }
         }
-        Artifact platform = factory.createArtifact( platformArtifact.getGroupId(),
-                                                    platformArtifact.getArtifactId(),
-                                                    platformVersion,
-                                                    null,
-                                                    platformArtifact.getType() );
+        Artifact platform =
+            factory.createArtifact( platformArtifact.getGroupId(), platformArtifact.getArtifactId(), platformVersion,
+                                    null, platformArtifact.getType() );
         try
         {
             resolver.resolve( platform, remoteRepositories, localRepository );
         }
         catch ( ArtifactResolutionException e )
         {
-            throw new MojoExecutionException( "Failed to resolve platform artifact: "
-                                              + platform.getId(), e );
+            throw new MojoExecutionException( "Failed to resolve platform artifact: " + platform.getId(), e );
         }
         catch ( ArtifactNotFoundException e )
         {
-            throw new MojoExecutionException( "Cannot find platform artifact: " + platform.getId(),
-                                              e );
+            throw new MojoExecutionException( "Cannot find platform artifact: " + platform.getId(), e );
         }
 
         File platformFile = platform.getFile();
         if ( outputDebugMessages() )
         {
-            getLog().info( "Using plexus platform: " + platformArtifact + "\nFile: "
-                           + platformFile.getAbsolutePath() );
+            getLog().info( "Using plexus platform: " + platformArtifact + "\nFile: " + platformFile.getAbsolutePath() );
         }
         return platformFile;
-    }
-
-    private File writeConfig( ClassworldsAppConfiguration config )
-        throws MojoExecutionException
-    {
-        File classworldsConf = new File( targetDir, "classworlds.conf" );
-
-        try
-        {
-            new ClassworldsConfWriter().write( classworldsConf, config );
-        }
-        catch ( ClassworldsIOException e )
-        {
-            throw new MojoExecutionException( e.getMessage(), e );
-        }
-
-        if ( outputDebugMessages() )
-        {
-            getLog().info( "Saving Classworlds configuration at: "
-                           + classworldsConf.getAbsolutePath() );
-        }
-
-        return classworldsConf;
     }
 
     protected boolean outputDebugMessages()
@@ -444,8 +313,7 @@ public class PlexusRunMojo
         return debug || debugOutput || getLog().isDebugEnabled();
     }
 
-    private ClassworldsAppConfiguration buildConfig()
-        throws MojoExecutionException
+    private ClassworldsRealmConfiguration getClassworldsRealmConfig()
     {
         ClassworldsRealmConfiguration rootRealmConfig = new ClassworldsRealmConfiguration( "plexus" );
 
@@ -463,37 +331,7 @@ public class PlexusRunMojo
 
         rootRealmConfig.addLoadPatterns( getDependencyPaths() );
 
-        ClassworldsAppConfiguration config = new ClassworldsAppConfiguration();
-
-        config.setMainClass( launcherClass );
-        config.addRealmConfiguration( rootRealmConfig );
-        config.setMainRealm( rootRealmConfig.getRealmId() );
-
-        Map<String, String> sysProps = new HashMap<String, String>();
-
-        if ( systemProperties != null && !systemProperties.isEmpty() )
-        {
-            getLog().info( "Using system properties:\n\n" + systemProperties );
-            sysProps.putAll( systemProperties );
-        }
-
-        // allow the override of the basedir...
-        // NOTE, this MUST be after the putAll, because this value gets lost. (its not suppose to...)
-        sysProps.put( "basedir", basedir.getAbsolutePath() );
-        
-        sysProps.put( PlexusContainerHost.CONFIGURATION_FILE_PROPERTY,
-                      configuration.getAbsolutePath() );
-        sysProps.put( PlexusContainerHost.ENABLE_CONTROL_SOCKET, "true" );
-
-        config.setSystemProperties( sysProps );
-
-        ClassworldsValidationResult vr = new ClassworldsModelValidator().validate( config );
-        if ( vr.hasErrors() )
-        {
-            throw new MojoExecutionException( vr.render() );
-        }
-
-        return config;
+        return rootRealmConfig;
     }
 
     @SuppressWarnings( "unchecked" )
@@ -516,8 +354,8 @@ public class PlexusRunMojo
             for ( Artifact artifact : (List<Artifact>) project.getTestArtifacts() )
             {
                 if ( Artifact.SCOPE_COMPILE.equals( artifact.getScope() )
-                     || Artifact.SCOPE_RUNTIME.equals( artifact.getScope() )
-                     || Artifact.SCOPE_PROVIDED.equals( artifact.getScope() ) )
+                    || Artifact.SCOPE_RUNTIME.equals( artifact.getScope() )
+                    || Artifact.SCOPE_PROVIDED.equals( artifact.getScope() ) )
                 {
                     paths.add( artifact.getFile().getAbsolutePath() );
                 }
@@ -525,38 +363,6 @@ public class PlexusRunMojo
         }
 
         return paths;
-    }
-
-    private void stopStreamPumps()
-    {
-        if ( outPumper != null )
-        {
-            outPumper.close();
-        }
-
-        if ( errPumper != null )
-        {
-            errPumper.close();
-        }
-    }
-
-    protected final class ShutdownHook
-        implements Runnable
-    {
-        protected ShutdownHook()
-        {
-        }
-
-        public void run()
-        {
-            //If not closed normally...
-            if ( controlClient != null && controlClient.isOpen() )
-            {
-                System.out.println( "ShutdownHook is closing the client connection." );
-                //Do it now
-                controlClient.close();
-            }
-        }
     }
 
     public Log getLog()
@@ -569,37 +375,11 @@ public class PlexusRunMojo
         this.log = log;
     }
 
-    private void executeCommandLine( Commandline cli )
-        throws MojoExecutionException
+    public void contextualize( Context context )
+        throws ContextException
     {
-        StreamConsumer out = new StreamConsumer()
-        {
-            public void consumeLine( String line )
-            {
-                getLog().info( line );
-            }
-        };
+        this.container = (PlexusContainer) context.get( PlexusConstants.PLEXUS_KEY );
 
-        Process p = null;
-
-        try
-        {
-            p = cli.execute();
-
-            outPumper = new StreamPumper( p.getInputStream(), out );
-            errPumper = new StreamPumper( p.getErrorStream(), out );
-
-            outPumper.setPriority( Thread.MIN_PRIORITY + 1 );
-            errPumper.setPriority( Thread.MIN_PRIORITY + 1 );
-
-            outPumper.start();
-            errPumper.start();
-        }
-        catch ( CommandLineException e )
-        {
-            throw new MojoExecutionException( "Failed to execute plexus application: "
-                                              + e.getMessage(), e );
-        }
     }
 
 }
