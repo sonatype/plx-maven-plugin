@@ -15,7 +15,7 @@
   <properties>
     <maven.version>2.1-SONATYPE-653485</maven.version>
     <maven.artifact.version>3.0-SONATYPE-653272</maven.artifact.version>
-    <appbooter.version>1.4</appbooter.version>
+    <appbooter.version>1.6.0</appbooter.version>
   </properties>
   
   <dependencies>
