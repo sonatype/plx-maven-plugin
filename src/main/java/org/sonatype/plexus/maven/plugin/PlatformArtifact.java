@@ -27,7 +27,7 @@ public class PlatformArtifact
 
     public static final String DEFAULT_ARTIFACT_ID = "plexus-platform-base";
 
-    public static final String DEFAULT_VERSION = "1.0-SNAPSHOT";
+    public static final String DEFAULT_VERSION = "1.6.5";
 
     public static final PlatformArtifact DEFAULT = new PlatformArtifact( DEFAULT_GROUP_ID, DEFAULT_ARTIFACT_ID, DEFAULT_VERSION );
 
