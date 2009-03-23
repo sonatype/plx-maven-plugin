@@ -120,9 +120,7 @@ public class PlexusRunMojo
      * Java command used to start the Plexus application into debugging mode, which is meant to allow attachment of a
      * remote application debugger via JPDA, etc.
      * 
-     * @parameter default-value="java -Xdebug -Xnoagent
-     *            -Xrunjdwp:transport=dt_socket,server=y,suspend=@DEBUG_SUSPEND@,address=@DEBUG_PORT@
-     *            -Djava.compiler=NONE"
+     * @parameter default-value="java -Xdebug -Xnoagent -Xrunjdwp:transport=dt_socket,server=y,suspend=@DEBUG_SUSPEND@,address=@DEBUG_PORT@  -Djava.compiler=NONE"  expression="${plx.debugJavaCmd}"
      */
     private String debugJavaCmd;
 
